@@ -1,65 +1,104 @@
 import streamlit as st
+import tensorflow as tf
+import numpy as np
+from PIL import Image
 
-# Import library yang diperlukan
-import tensorflow as tf                      # Untuk model dan prediksi
-import numpy as np                           # Untuk operasi numerik
-from PIL import Image, ImageOps              # Untuk memproses gambar
-import matplotlib.pyplot as plt              # Untuk menampilkan gambar
-from google.colab import files               # Untuk mengunggah file di Google Colab
-
-# Fungsi untuk memuat model MobileNetV2 dengan bobot pre-trained dari ImageNet
+# =========================
+# Load Model
+# =========================
+@st.cache_resource
 def load_model():
     model = tf.keras.applications.MobileNetV2(weights='imagenet')
     return model
 
-# Fungsi untuk melakukan preprocessing gambar
+model = load_model()
+
+# =========================
+# Preprocessing Image
+# =========================
 def preprocess_image(foto):
-    # Ubah ukuran gambar menjadi 224x224 piksel sesuai dengan input model MobileNetV2
+    # Resize sesuai input MobileNetV2
     foto = foto.resize((224, 224))
-    # Ensure foto is in RGB format to have 3 channels
-    if foto.mode != 'RGB':
-        foto = foto.convert('RGB')
-    # Ubah gambar menjadi array numpy
+
+    # Pastikan RGB
+    if foto.mode != "RGB":
+        foto = foto.convert("RGB")
+
+    # Convert ke numpy array
     image_array = np.array(foto)
-    # Pastikan gambar memiliki 3 channel (RGB); jika ada channel alpha (RGBA), buang channel tersebut
-    if image_array.shape[-1] == 4:
-        image_array = image_array[..., :3]
-    # Lakukan preprocessing sesuai dengan MobileNetV2
-    processed_image = tf.keras.applications.mobilenet_v2.preprocess_input(image_array)
-    # Tambahkan dimensi batch: dari (224,224,3) menjadi (1,224,224,3)
+
+    # Preprocessing MobileNetV2
+    processed_image = tf.keras.applications.mobilenet_v2.preprocess_input(
+        image_array
+    )
+
+    # Tambah dimensi batch
     processed_image = np.expand_dims(processed_image, axis=0)
+
     return processed_image
 
-# Memuat model
-model = load_model()
-print("Model MobileNetV2 berhasil dimuat.")
+# =========================
+# Tampilan Streamlit
+# =========================
+st.set_page_config(
+    page_title="Klasifikasi Gambar MobileNetV2",
+    page_icon="🖼️",
+    layout="centered"
+)
 
-# Mengunggah gambar menggunakan widget Google Colab
-print("Silakan unggah gambar (format: jpg, jpeg, atau png):")
-uploaded = files.upload()
+st.title("🖼️ Klasifikasi Gambar dengan MobileNetV2")
+st.write("Upload gambar JPG, JPEG, atau PNG untuk melakukan prediksi.")
 
-# Proses setiap file yang diunggah
-for filename in uploaded.keys():
-    # Membaca gambar dengan PIL
-    foto = Image.open(filename)
+# Upload file
+uploaded_file = st.file_uploader(
+    "Pilih gambar",
+    type=["jpg", "jpeg", "png"]
+)
 
-    # Menampilkan gambar yang diunggah
-    plt.figure(figsize=(6, 6))
-    plt.imshow(foto)
-    plt.title(f"Gambar: {filename}")
-    plt.axis()
-    plt.show()
+if uploaded_file is not None:
 
-    # Melakukan preprocessing gambar
-    processed_image = preprocess_image(foto)
+    # Baca gambar
+    foto = Image.open(uploaded_file)
 
-    # Melakukan prediksi menggunakan model
-    predictions = model.predict(processed_image)
+    # Tampilkan gambar
+    st.image(
+        foto,
+        caption="Gambar yang diupload",
+        use_container_width=True
+    )
 
-    # Mendecode prediksi untuk mendapatkan label dan probabilitas (top 3)
-    decoded_predictions = tf.keras.applications.mobilenet_v2.decode_predictions(predictions, top=3)[0]
+    if st.button("Prediksi"):
 
-    # Menampilkan hasil prediksi
-    print(f"### Hasil Prediksi untuk {filename} ###")
-    for i, (imagenetID, label, prob) in enumerate(decoded_predictions):
-        print(f"{i+1}. {label}: {prob*100:.2f}%")
+        with st.spinner("Sedang memproses gambar..."):
+
+            # Preprocessing
+            processed_image = preprocess_image(foto)
+
+            # Prediksi
+            predictions = model.predict(processed_image)
+
+            # Decode hasil
+            decoded_predictions = tf.keras.applications.mobilenet_v2.decode_predictions(
+                predictions,
+                top=3
+            )[0]
+
+        st.success("Prediksi selesai!")
+
+        st.subheader("Hasil Prediksi")
+
+        for i, (_, label, prob) in enumerate(decoded_predictions):
+            st.write(
+                f"**{i+1}. {label.replace('_', ' ').title()}** : {prob*100:.2f}%"
+            )
+
+            st.progress(float(prob))
+
+        # Prediksi terbaik
+        best_label = decoded_predictions[0][1]
+        best_prob = decoded_predictions[0][2]
+
+        st.info(
+            f"Prediksi utama: **{best_label.replace('_',' ').title()}** "
+            f"({best_prob*100:.2f}%)"
+        )
